@@ -27,8 +27,7 @@ import { cn } from '@/src/lib/utils';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 
-// Initialize Gemini API
-const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
+// Initialize Gemini API - Moved inside runAnalysis for reliability
 
 type AnalysisState = 'idle' | 'uploading' | 'analyzing' | 'completed' | 'error';
 
@@ -93,7 +92,12 @@ export default function App() {
     setError(null);
 
     try {
-      const model = "gemini-3.1-flash-lite-preview";
+      if (!process.env.GEMINI_API_KEY) {
+        throw new Error("API 키가 설정되지 않았습니다. 관리자에게 문의하세요.");
+      }
+
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const model = "gemini-3-flash-preview";
 
       const prompt = `
 # Role: 영양 의학 및 유사나(USANA) 전문 AI 어드바이저
@@ -158,16 +162,16 @@ ${manualInput.trim() ? `\n[사용자 입력 증상/질병명]:\n${manualInput}\n
         });
       }
 
-      const result = await genAI.models.generateContent({
+      const result = await ai.models.generateContent({
         model: model,
         contents: [{ parts }]
       });
 
       setResult(result.text || "분석 결과를 생성할 수 없습니다.");
       setStatus('completed');
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      setError("분석 중 오류가 발생했습니다. 다시 시도해주세요.");
+      setError(err.message || "분석 중 오류가 발생했습니다. 다시 시도해주세요.");
       setStatus('error');
     }
   };
