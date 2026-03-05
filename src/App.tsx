@@ -93,11 +93,11 @@ export default function App() {
 
     try {
       if (!process.env.GEMINI_API_KEY) {
-        throw new Error("API 키가 설정되지 않았습니다. 관리자에게 문의하세요.");
+        throw new Error("API 키가 설정되지 않았습니다. 환경 변수를 확인해주세요.");
       }
 
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-      const model = "gemini-3-flash-preview";
+      const model = "gemini-flash-latest";
 
       const prompt = `
 # Role: 영양 의학 및 유사나(USANA) 전문 AI 어드바이저
@@ -112,7 +112,7 @@ ${manualInput.trim() ? `\n[사용자 입력 증상/질병명]:\n${manualInput}\n
 3. **유사나(USANA) 솔루션**: 모든 영양 처방은 유사나의 제품을 기준으로 합니다.
    - **헬스팩**: 14가지 비타민, 9가지 미네랄, 7가지 식물성분(인셀리전스 컴플렉스)이 함유된 종합 영양제. 세포 영양, 보호, 재생을 돕는 독보적인 기술력 강조.
    - **써큘레이트 플러스**: 1포를 250~300ml 물에 타서 섭취하는 혈행 개선 신제품.
-   - **코어 아미노 드링크**: 근육 건강과 에너지를 위한 신제품.
+   - **코어 아미노 드링크**: 분말로 1스쿱을 물에 타서 섭취하는 근육 건강과 에너지를 위한 신제품.
    - **프로후라바놀 C300**: 기존 C600은 단종되었으므로 반드시 C300으로 처방.
    - **바이오메가**: 혈행 관련 이슈가 있을 경우 항상 필수 처방.
 
@@ -141,7 +141,7 @@ ${manualInput.trim() ? `\n[사용자 입력 증상/질병명]:\n${manualInput}\n
 - **필요 영양소 상세 설명**: 왜 이 영양소들이 필요한지 세포 수준에서 자세히 설명하십시오.
 ## 5. 유사나(USANA) 영양 처방전
 - **추천 제품 리스트**: 제품명, 핵심 성분 및 기술, 기대 효과. (써큘레이트 플러스, 코어 아미노 드링크 등 신제품 적극 활용)
-- **섭취 방법**: 최적의 효과를 위한 가이드. (예: 써큘레이트 플러스는 물 250~300ml에 타서 섭취)
+- **섭취 방법**: 최적의 효과를 위한 가이드. (예: 써큘레이트 플러스는 물 250~300ml에 1포, 코어 아미노 드링크는 물에 1스쿱 타서 섭취)
 ## 6. 생활 습관 및 식단 가이드
 - 혈당 관리, 항산화 식단, 수분 섭취 등 제안.
 
@@ -164,7 +164,7 @@ ${manualInput.trim() ? `\n[사용자 입력 증상/질병명]:\n${manualInput}\n
 
       const result = await ai.models.generateContent({
         model: model,
-        contents: [{ parts }]
+        contents: { parts }
       });
 
       setResult(result.text || "분석 결과를 생성할 수 없습니다.");
