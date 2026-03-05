@@ -1,0 +1,7 @@
+{
+  "name": "세포건강 AI 어드바이저 (CellHealth AI)",
+  "description": "영양 의학 및 드럭 머거 이론 기반 맞춤형 건강 솔루션 제공",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
