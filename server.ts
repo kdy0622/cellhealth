@@ -20,6 +20,17 @@ async function startServer() {
   // Support JSON payloads up to 30mb for medical reports / photos
   app.use(express.json({ limit: '30mb' }));
 
+  // Enable CORS for development and cross-origin previews
+  app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(200);
+    }
+    next();
+  });
+
   // Health check endpoint
   app.get(['/api/health', '/api/health/'], (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });

@@ -122,23 +122,26 @@ export default function App() {
 
       // If server returned non-ok (e.g. 404 on static preview, 500, etc.), fall back to client
       const errJson = await response.json().catch(() => ({}));
-      serverFailureMessage = errJson.error || `서버 오류 (${response.status})`;
+      serverFailureMessage = errJson.error || `서버 응답 (${response.status})`;
       shouldFallbackToClient = true;
     } catch (fetchErr: any) {
       console.warn('Backend server /api/analyze unavailable, activating client-side engine:', fetchErr);
+      serverFailureMessage = fetchErr?.message || '서버 통신 실패';
       shouldFallbackToClient = true;
     }
 
-    // 2. Client-side Fallback using @google/genai (Direct execution in browser if env key present)
+    // 2. Client-side Fallback using @google/genai (Runs on static previews or when server is unavailable)
     if (shouldFallbackToClient) {
       try {
         const apiKey = 
-          (typeof process !== 'undefined' && (process.env?.GEMINI_API_KEY || process.env?.API_KEY)) ||
+          process.env.GEMINI_API_KEY ||
+          process.env.API_KEY ||
+          (typeof process !== 'undefined' && process.env && (process.env.GEMINI_API_KEY || process.env.API_KEY)) ||
           ((import.meta as any).env?.VITE_GEMINI_API_KEY) ||
           '';
 
         if (!apiKey) {
-          throw new Error(serverFailureMessage || '분석 서버 연결에 실패했습니다. AI Studio Secrets 또는 환경 변수(GEMINI_API_KEY) 설정을 확인해주세요.');
+          throw new Error('Gemini API 키를 불러올 수 없습니다. AI Studio 환경 변수(GEMINI_API_KEY) 설정을 확인해주세요.');
         }
 
         const ai = new GoogleGenAI({
@@ -181,7 +184,7 @@ export default function App() {
         return;
       } catch (clientErr: any) {
         console.error('Client AI Analysis Error:', clientErr);
-        setError(clientErr?.message || serverFailureMessage || '분석 중 오류가 발생했습니다. 다시 시도해주세요.');
+        setError(clientErr?.message || serverFailureMessage || '분석 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
         setStatus('error');
         return;
       }
