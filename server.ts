@@ -1,6 +1,6 @@
 import express from 'express';
 import { createServer as createViteServer } from 'vite';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -13,7 +13,7 @@ const __dirname = path.dirname(__filename);
 async function startServer() {
   const app = express();
   const isProduction = process.env.NODE_ENV === 'production';
-  const PORT = isProduction && process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
   // Support JSON payloads up to 30mb for medical reports / photos
   app.use(express.json({ limit: '30mb' }));
@@ -26,10 +26,10 @@ async function startServer() {
   // Server-side Gemini API route
   app.post('/api/analyze', async (req, res) => {
     try {
-      const apiKey = process.env.GEMINI_API_KEY;
+      const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
       if (!apiKey) {
         return res.status(500).json({ 
-          error: 'GEMINI_API_KEY가 서버 환경에 설정되지 않았습니다. AI Studio 설정에서 API 키를 확인해주세요.' 
+          error: 'GEMINI_API_KEY가 서버 환경에 설정되지 않았습니다. AI Studio의 Settings > Secrets에서 API 키를 확인해주세요.' 
         });
       }
 
@@ -39,7 +39,14 @@ async function startServer() {
         return res.status(400).json({ error: '분석할 파일이나 증상을 입력해주세요.' });
       }
 
-      const ai = new GoogleGenAI({ apiKey });
+      const ai = new GoogleGenAI({
+        apiKey,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          },
+        },
+      });
 
       const prompt = `
 # Role: 영양 의학 및 유사나(USANA) 전문 AI 어드바이저
@@ -79,37 +86,26 @@ ${manualInput.trim() ? `\n[사용자 입력 증상/질병명]:\n${manualInput}\n
         parts.push({
           inlineData: {
             mimeType: fileData.mimeType,
-            data: fileData.data
-          }
+            data: fileData.data,
+          },
         });
       }
 
-      // Try modern gemini models in order
-      const candidateModels = ['gemini-3.8-flash', 'gemini-flash-latest'];
-      let resultText = '';
-      let lastError = null;
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.8-flash',
+        contents: parts,
+        config: {
+          thinkingConfig: {
+            thinkingLevel: ThinkingLevel.LOW,
+          },
+        },
+      });
 
-      for (const model of candidateModels) {
-        try {
-          const response = await ai.models.generateContent({
-            model,
-            contents: { parts }
-          });
-          if (response.text) {
-            resultText = response.text;
-            break;
-          }
-        } catch (err) {
-          lastError = err;
-          console.warn(`Model ${model} error:`, err);
-        }
+      if (!response.text) {
+        throw new Error('분석 결과를 생성하지 못했습니다.');
       }
 
-      if (!resultText) {
-        throw lastError || new Error('분석 결과를 생성하지 못했습니다.');
-      }
-
-      return res.json({ result: resultText });
+      return res.json({ result: response.text });
     } catch (error: any) {
       console.error('Server Analyze Error:', error);
       return res.status(500).json({ 
@@ -120,7 +116,7 @@ ${manualInput.trim() ? `\n[사용자 입력 증상/질병명]:\n${manualInput}\n
 
   if (!isProduction) {
     const vite = await createViteServer({
-      server: { middlewareMode: true }
+      server: { middlewareMode: true },
     });
     app.use(vite.middlewares);
   } else {
