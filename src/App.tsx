@@ -24,7 +24,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import Markdown from 'react-markdown';
 import { cn } from '@/src/lib/utils';
-import html2canvas from 'html2canvas';
+import { toPng } from 'html-to-image';
 import { jsPDF } from 'jspdf';
 
 // Initialize Gemini API - Moved inside runAnalysis for reliability
@@ -92,86 +92,101 @@ export default function App() {
     setError(null);
 
     try {
-      if (!process.env.GEMINI_API_KEY) {
-        throw new Error("API 키가 설정되지 않았습니다. 환경 변수를 확인해주세요.");
+      // 1. Primary: Server-side API Route (Secure & works in deployed web app with MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API)
+      const response = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          manualInput,
+          fileData,
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.result) {
+          setResult(data.result);
+          setStatus('completed');
+          return;
+        } else {
+          throw new Error(data.error || '분석 결과를 생성하지 못했습니다.');
+        }
       }
 
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-      const model = "gemini-flash-latest";
+      let errorMsg = '';
+      try {
+        const errJson = await response.json();
+        errorMsg = errJson.error;
+      } catch (e) {
+        errorMsg = '';
+      }
 
-      const prompt = `
+      // 2. Client-side fallback if server route failed and client key is present
+      if (process.env.GEMINI_API_KEY) {
+        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+        const model = 'gemini-flash-latest';
+
+        const prompt = `
 # Role: 영양 의학 및 유사나(USANA) 전문 AI 어드바이저
 
-당신은 제공된 지식 자료(영양 의학, 드럭 머거 이론, 유사나 제품 정보)를 완벽히 숙지한 전문가입니다. 사용자가 제공한 [양자기 리포트], [건강검진 데이터], [처방전/약봉지] 사진/PDF 또는 [수기 입력된 증상/질병명]을 분석하여, **반드시 제공된 지식 체계 내에서** 세포 건강 중심의 통합 솔루션을 제공합니다.
+당신은 제공된 지식 자료(영양 의학, 드럭 머거 이론, 유사나 제품 정보)를 완벽히 숙지한 최고 전문가입니다. 사용자가 제공한 [양자기 리포트], [건강검진 데이터], [처방전/약봉지] 사진/PDF 또는 [수기 입력된 증상/질병명]을 분석하여, 세포 건강 중심의 통합 솔루션을 제공합니다.
 
 ${manualInput.trim() ? `\n[사용자 입력 증상/질병명]:\n${manualInput}\n` : ''}
 
-# Core Knowledge & Philosophy (분석 기준):
+# Core Philosophy & Principles:
 1. **질병의 근원**: 모든 질병의 뿌리는 '산화 스트레스'와 '세포 영양 불균형'에 있습니다.
 2. **현대의학의 한계와 드럭 머거**: 약물은 증상을 완화하지만 필수 영양소를 고갈시킵니다. 분석 시 복용 약물에 따른 고갈 영양소를 반드시 찾아내어 처방에 반영하십시오.
-3. **유사나(USANA) 솔루션**: 모든 영양 처방은 유사나의 제품을 기준으로 합니다.
-   - **헬스팩**: 14가지 비타민, 9가지 미네랄, 7가지 식물성분(인셀리전스 컴플렉스)이 함유된 종합 영양제. 세포 영양, 보호, 재생을 돕는 독보적인 기술력 강조.
-   - **써큘레이트 플러스**: 1포를 250~300ml 물에 타서 섭취하는 혈행 개선 신제품.
-   - **코어 아미노 드링크**: 분말로 1스쿱을 물에 타서 섭취하는 근육 건강과 에너지를 위한 신제품.
-   - **프로후라바놀 C300**: 기존 C600은 단종되었으므로 반드시 C300으로 처방.
-   - **바이오메가**: 혈행 관련 이슈가 있을 경우 항상 필수 처방.
+3. **만성퇴행성 질환 및 다이어트 필수 지침**:
+   - 비만, 당뇨, 고혈당, 암, 고혈압, 고지혈증 등 만성퇴행성 질환이나 다이어트 관련 내용이 나오면 **반드시 뉴트리밀 액티브와 화이버지 플러스가 포함된 '헬시라이프스타일 챌린지'로 안내**하십시오.
+   - GI지수 4의 저혈당 식사, 240KCAL의 충분한 열량, 풍부한 단백질과 식이섬유를 언급하십시오.
+   - 근육은 철저히 지키고 체지방만 감량하여 기초대사량을 유지해 요요가 생기지 않는 건강한 다이어트임을 강조하십시오.
+4. **유사나(USANA) 솔루션**:
+   - **헬스팩**: 14가지 비타민, 9가지 미네랄, 7가지 식물성분(인셀리전스 컴플렉스)이 함유된 종합 영양제. 세포 영양, 보호, 재생 기술 강조.
+   - **써큘레이트 플러스**: 1포를 250~300ml 물에 타서 섭취하는 혈행 개선 파우더 신제품.
+   - **코어 아미노 드링크**: 분말로 1스쿱을 물에 타서 섭취하는 근육 건강 및 에너지 신제품.
+   - **프로후라바놀 C300**: C600은 단종되었으므로 반드시 C300으로 처방.
+   - **바이오메가**: 혈행 관련 이슈 시 항상 필수 처방.
 
-# Analysis Protocol (수행 절차):
-1. **데이터 정밀 추출**: 이미지/PDF/텍스트에서 모든 건강 지표와 약물명을 정확히 추출하십시오.
-2. **세포 수준 원인 분석**: 추출된 지표가 나쁜 이유를 산화 스트레스와 영양 불균형 관점에서 설명하십시오.
-3. **현대의학적 치료 분석 및 드럭 머거**: 
-   - 현재 복용 중인 약물 치료나 수술 등의 목적을 설명하십시오.
-   - 이러한 치료가 근본 원인 해결이 아닌 '대증요법(증상 완화)'에 치중되어 있음을 강조하십시오.
-   - 해당 약물이 체내에서 뺏어가는 영양소(Drug Mugger)를 구체적으로 명시하십시오.
-4. **유사나 제품 처방**: 
-   - **기초 영양**: 헬스팩(CellSentials)을 기본으로 처방하십시오.
-   - **집중 케어(Optimizers)**: 증상과 지표에 따라 써큘레이트 플러스, 코어 아미노 드링크, 코퀴논 30, 바이오메가, 프로후라바놀 C300, 마그네칼D, 헤파실 등을 정확히 매칭하십시오.
-
-# Report Structure (반드시 이 순서로 출력):
+# Report Structure:
 ## 1. 종합 건강 진단 결과
-- 현재 건강 등급 및 핵심 관리 지표 요약.
 ## 2. 질병의 원인과 세포 건강 상태
-- 영양 의학 이론에 기반한 산화 스트레스 및 세포 손상 분석.
 ## 3. 현대의학적 치료와 그 한계 (대증요법 및 드럭 머거)
-- **치료 방법 분석**: 현재 시행 중인 약물/수술 치료의 목적.
-- **대증요법의 한계**: 근본 원인(세포 영양) 해결이 아닌 증상 억제 위주의 치료임을 설명.
-- **드럭 머거(Drug Mugger) 경고**: 약물명 -> 고갈 영양소 -> 보충이 필요한 이유와 잠재적 부작용.
-## 4. 기능의학적 맞춤 솔루션
-- 세포 복구 및 항산화를 위한 핵심 영양 전략.
-- **필요 영양소 상세 설명**: 왜 이 영양소들이 필요한지 세포 수준에서 자세히 설명하십시오.
-## 5. 유사나(USANA) 영양 처방전
-- **추천 제품 리스트**: 제품명, 핵심 성분 및 기술, 기대 효과. (써큘레이트 플러스, 코어 아미노 드링크 등 신제품 적극 활용)
-- **섭취 방법**: 최적의 효과를 위한 가이드. (예: 써큘레이트 플러스는 물 250~300ml에 1포, 코어 아미노 드링크는 물에 1스쿱 타서 섭취)
+## 4. 기능의학적 맞춤 솔루션 (필요 영양소 및 헬시라이프스타일 챌린지 상세)
+## 5. 유사나(USANA) 영양 처방전 (추천 제품 및 섭취 방법)
 ## 6. 생활 습관 및 식단 가이드
-- 혈당 관리, 항산화 식단, 수분 섭취 등 제안.
 
 # Tone & Manner:
-- 지식 자료에 근거한 확신 있고 전문적인 어조.
-- **중요: 도표(Table)를 절대 사용하지 마십시오.** 대신 불렛 포인트(Bullet points)나 번호가 매겨진 리스트를 사용하여 가독성 있게 작성하십시오.
-- 모든 처방은 유사나 제품의 우수성과 과학적 근거를 바탕으로 작성.
-- 한국어 사용.
-      `;
+- 확신 있고 전문적인 어조. 도표(Table) 금지, 불렛 포인트 활용. 한국어.
+        `;
 
-      const parts: any[] = [{ text: prompt }];
-      if (fileData) {
-        parts.push({
-          inlineData: {
-            mimeType: fileData.mimeType,
-            data: fileData.data
-          }
+        const parts: any[] = [{ text: prompt }];
+        if (fileData) {
+          parts.push({
+            inlineData: {
+              mimeType: fileData.mimeType,
+              data: fileData.data
+            }
+          });
+        }
+
+        const result = await ai.models.generateContent({
+          model,
+          contents: { parts }
         });
+
+        if (result.text) {
+          setResult(result.text);
+          setStatus('completed');
+          return;
+        }
       }
 
-      const result = await ai.models.generateContent({
-        model: model,
-        contents: { parts }
-      });
-
-      setResult(result.text || "분석 결과를 생성할 수 없습니다.");
-      setStatus('completed');
+      throw new Error(errorMsg || '서버 분석 요청에 실패했습니다. 잠시 후 다시 시도해주세요.');
     } catch (err: any) {
       console.error(err);
-      setError(err.message || "분석 중 오류가 발생했습니다. 다시 시도해주세요.");
+      setError(err?.message || '분석 중 오류가 발생했습니다. 다시 시도해주세요.');
       setStatus('error');
     }
   };
@@ -181,14 +196,13 @@ ${manualInput.trim() ? `\n[사용자 입력 증상/질병명]:\n${manualInput}\n
     setIsExporting(true);
     try {
       const element = reportRef.current;
-      const canvas = await html2canvas(element, {
-        scale: 2,
-        useCORS: true,
-        logging: false,
-        backgroundColor: '#ffffff'
+      // toPng avoids the unsupported 'oklch' color function parsing issue in html2canvas
+      const imgData = await toPng(element, {
+        pixelRatio: 2,
+        backgroundColor: '#ffffff',
+        cacheBust: true,
       });
       
-      const imgData = canvas.toDataURL('image/png');
       const pdf = new jsPDF('p', 'mm', 'a4');
       const imgProps = pdf.getImageProperties(imgData);
       const pdfWidth = pdf.internal.pageSize.getWidth();
@@ -201,17 +215,17 @@ ${manualInput.trim() ? `\n[사용자 입력 증상/질병명]:\n${manualInput}\n
       pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, pdfHeight);
       heightLeft -= pageHeight;
 
-      while (heightLeft >= 0) {
+      while (heightLeft > 0) {
         position = heightLeft - pdfHeight;
         pdf.addPage();
         pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, pdfHeight);
         heightLeft -= pageHeight;
       }
 
-      pdf.save(`CellHealth_Report_${new Date().toISOString().slice(0,10)}.pdf`);
+      pdf.save(`CellHealth_Report_${new Date().toISOString().slice(0, 10)}.pdf`);
     } catch (err) {
       console.error('PDF Export Error:', err);
-      alert('PDF 저장 중 오류가 발생했습니다.');
+      alert('PDF 저장 중 오류가 발생했습니다. 브라우저 인쇄 버튼을 사용하여 PDF로 저장할 수도 있습니다.');
     } finally {
       setIsExporting(false);
     }
@@ -464,13 +478,9 @@ ${manualInput.trim() ? `\n[사용자 입력 증상/질병명]:\n${manualInput}\n
                     
                     <div className="mt-12 pt-8 border-t border-slate-100">
                       <div className="bg-slate-50 rounded-2xl p-6 flex flex-col sm:flex-row items-center gap-6">
-                        <div className="w-24 h-24 bg-white rounded-xl shadow-sm flex items-center justify-center p-4">
-                          <img 
-                            src="https://picsum.photos/seed/usana-logo/200/200" 
-                            alt="USANA" 
-                            className="w-full h-auto grayscale opacity-50"
-                            referrerPolicy="no-referrer"
-                          />
+                        <div className="w-20 h-20 bg-emerald-50 text-emerald-600 rounded-2xl shadow-sm flex flex-col items-center justify-center p-3 border border-emerald-100 shrink-0">
+                          <ShieldCheck size={36} className="text-emerald-600 mb-1" />
+                          <span className="text-[10px] font-black tracking-wider text-emerald-800">USANA</span>
                         </div>
                         <div className="flex-1 text-center sm:text-left">
                           <h4 className="font-bold text-slate-900 mb-1">유사나(USANA) 솔루션 안내</h4>

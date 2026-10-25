@@ -26,7 +26,7 @@
 .markdown-body tr:hover { @apply bg-emerald-50/30 transition-colors; }
 
 @media print {
-  header, footer, .lg:col-span-5, button, .mt-12.pt-8.border-t {
+  header, footer, .\lg\:col-span-5, button, .mt-12.pt-8.border-t {
     display: none !important;
   }
   body {
@@ -37,10 +37,10 @@
     margin: 0 !important;
     max-width: none !important;
   }
-  .lg:col-span-12 {
+  .\lg\:col-span-12 {
     display: block !important;
   }
-  .lg:col-span-7 {
+  .\lg\:col-span-7 {
     width: 100% !important;
     margin: 0 !important;
     padding: 0 !important;

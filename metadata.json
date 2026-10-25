@@ -3,5 +3,8 @@
   "description": "영양 의학 및 드럭 머거 이론 기반 맞춤형 건강 솔루션 제공",
   "requestFramePermissions": [
     "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
   ]
 }
