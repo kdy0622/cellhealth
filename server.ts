@@ -4,7 +4,7 @@ import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { buildAdvisorPrompt } from './src/lib/prompt';
+import { buildAdvisorPrompt } from './src/lib/prompt.ts';
 
 dotenv.config();
 
@@ -29,9 +29,10 @@ async function startServer() {
   app.post(['/api/analyze', '/api/analyze/'], async (req, res) => {
     try {
       const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+
       if (!apiKey) {
-        return res.status(500).json({ 
-          error: 'GEMINI_API_KEY가 서버 환경에 설정되지 않았습니다. AI Studio의 Settings > Secrets에서 API 키를 확인해주세요.' 
+        return res.status(500).json({
+          error: 'Gemini API 키가 서버 환경 변수에 설정되지 않았습니다. AI Studio Secrets 또는 환경 변수(GEMINI_API_KEY)를 확인해주세요.'
         });
       }
 

@@ -120,20 +120,16 @@ export default function App() {
         }
       }
 
-      // If the backend returned 404 (static hosting / static preview container)
-      // or server error, switch automatically to client-side GoogleGenAI engine
-      if (response.status === 404 || response.status >= 500) {
-        shouldFallbackToClient = true;
-      } else {
-        const errJson = await response.json().catch(() => ({}));
-        serverFailureMessage = errJson.error || `서버 오류 (${response.status})`;
-      }
+      // If server returned non-ok (e.g. 404 on static preview, 500, etc.), fall back to client
+      const errJson = await response.json().catch(() => ({}));
+      serverFailureMessage = errJson.error || `서버 오류 (${response.status})`;
+      shouldFallbackToClient = true;
     } catch (fetchErr: any) {
       console.warn('Backend server /api/analyze unavailable, activating client-side engine:', fetchErr);
       shouldFallbackToClient = true;
     }
 
-    // 2. Client-side Fallback using @google/genai (Seamless for static SPA deployments)
+    // 2. Client-side Fallback using @google/genai (Direct execution in browser if env key present)
     if (shouldFallbackToClient) {
       try {
         const apiKey = 
@@ -142,7 +138,7 @@ export default function App() {
           '';
 
         if (!apiKey) {
-          throw new Error('API 키가 설정되지 않았습니다. 환경 변수를 확인해주세요.');
+          throw new Error(serverFailureMessage || '분석 서버 연결에 실패했습니다. AI Studio Secrets 또는 환경 변수(GEMINI_API_KEY) 설정을 확인해주세요.');
         }
 
         const ai = new GoogleGenAI({
