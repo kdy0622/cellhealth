@@ -18,17 +18,20 @@ import {
   CheckCircle2,
   ArrowRight,
   RotateCcw,
-  Download
+  Download,
+  ExternalLink
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Markdown from 'react-markdown';
+import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import { cn } from '@/src/lib/utils';
 import { toPng } from 'html-to-image';
 import { jsPDF } from 'jspdf';
-
-// Initialize Gemini API - Moved inside runAnalysis for reliability
+import { buildAdvisorPrompt } from '@/src/lib/prompt';
 
 type AnalysisState = 'idle' | 'uploading' | 'analyzing' | 'completed' | 'error';
+
+const USANA_CATALOG_URL = 'https://issuu.com/usanakorea/docs/2026_';
 
 export default function App() {
   const [fileData, setFileData] = useState<{ data: string, mimeType: string } | null>(null);
@@ -90,8 +93,11 @@ export default function App() {
     setStatus('analyzing');
     setError(null);
 
+    // 1. Primary: Attempt Server API Route (/api/analyze)
+    let shouldFallbackToClient = false;
+    let serverFailureMessage = '';
+
     try {
-      // 1. Primary: Server-side API Route (Secure & works in deployed web app with MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API)
       const response = await fetch('/api/analyze', {
         method: 'POST',
         headers: {
@@ -114,18 +120,79 @@ export default function App() {
         }
       }
 
-      let errorMsg = '';
-      try {
-        const errJson = await response.json();
-        errorMsg = errJson.error;
-      } catch (e) {
-        errorMsg = '';
+      // If the backend returned 404 (static hosting / static preview container)
+      // or server error, switch automatically to client-side GoogleGenAI engine
+      if (response.status === 404 || response.status >= 500) {
+        shouldFallbackToClient = true;
+      } else {
+        const errJson = await response.json().catch(() => ({}));
+        serverFailureMessage = errJson.error || `서버 오류 (${response.status})`;
       }
+    } catch (fetchErr: any) {
+      console.warn('Backend server /api/analyze unavailable, activating client-side engine:', fetchErr);
+      shouldFallbackToClient = true;
+    }
 
-      throw new Error(errorMsg || `서버 분석 요청 오류 (${response.status})`);
-    } catch (err: any) {
-      console.error(err);
-      setError(err?.message || '분석 중 오류가 발생했습니다. 다시 시도해주세요.');
+    // 2. Client-side Fallback using @google/genai (Seamless for static SPA deployments)
+    if (shouldFallbackToClient) {
+      try {
+        const apiKey = 
+          (typeof process !== 'undefined' && (process.env?.GEMINI_API_KEY || process.env?.API_KEY)) ||
+          ((import.meta as any).env?.VITE_GEMINI_API_KEY) ||
+          '';
+
+        if (!apiKey) {
+          throw new Error('API 키가 설정되지 않았습니다. 환경 변수를 확인해주세요.');
+        }
+
+        const ai = new GoogleGenAI({
+          apiKey,
+          httpOptions: {
+            headers: {
+              'User-Agent': 'aistudio-build',
+            },
+          },
+        });
+
+        const prompt = buildAdvisorPrompt(manualInput);
+        const parts: any[] = [{ text: prompt }];
+
+        if (fileData && fileData.data && fileData.mimeType) {
+          parts.push({
+            inlineData: {
+              mimeType: fileData.mimeType,
+              data: fileData.data,
+            },
+          });
+        }
+
+        const clientResponse = await ai.models.generateContent({
+          model: 'gemini-3.8-flash',
+          contents: parts,
+          config: {
+            thinkingConfig: {
+              thinkingLevel: ThinkingLevel.LOW,
+            },
+          },
+        });
+
+        if (!clientResponse.text) {
+          throw new Error('분석 결과를 생성하지 못했습니다.');
+        }
+
+        setResult(clientResponse.text);
+        setStatus('completed');
+        return;
+      } catch (clientErr: any) {
+        console.error('Client AI Analysis Error:', clientErr);
+        setError(clientErr?.message || serverFailureMessage || '분석 중 오류가 발생했습니다. 다시 시도해주세요.');
+        setStatus('error');
+        return;
+      }
+    }
+
+    if (serverFailureMessage) {
+      setError(serverFailureMessage);
       setStatus('error');
     }
   };
@@ -171,7 +238,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-slate-50 text-slate-800">
       {/* Header */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-10">
         <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
@@ -184,9 +251,16 @@ export default function App() {
               <p className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold mt-1">Nutritional Medicine Advisor</p>
             </div>
           </div>
-          <div className="hidden sm:flex items-center gap-6 text-sm font-medium text-slate-600">
-            <a href="#" className="hover:text-emerald-600 transition-colors">Philosophy</a>
-            <a href="#" className="hover:text-emerald-600 transition-colors">USANA Solutions</a>
+          <div className="flex items-center gap-6 text-sm font-medium text-slate-600">
+            <a 
+              href={USANA_CATALOG_URL}
+              target="_blank" 
+              rel="noopener noreferrer" 
+              className="text-emerald-700 font-semibold hover:text-emerald-800 transition-colors flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100/80 px-3.5 py-1.5 rounded-full border border-emerald-200"
+            >
+              <span>USANA 제품 카탈로그</span>
+              <ExternalLink size={14} />
+            </a>
           </div>
         </div>
       </header>
@@ -371,10 +445,10 @@ export default function App() {
                     <AlertCircle size={40} />
                   </div>
                   <h3 className="text-xl font-bold text-slate-900 mb-2">분석 실패</h3>
-                  <p className="text-slate-500 mb-6">{error}</p>
+                  <p className="text-slate-500 mb-6 max-w-md">{error}</p>
                   <button 
                     onClick={() => setStatus('idle')}
-                    className="px-6 py-2 bg-slate-900 text-white rounded-xl font-medium"
+                    className="px-6 py-2 bg-slate-900 text-white rounded-xl font-medium hover:bg-slate-800 transition-colors"
                   >
                     다시 시도하기
                   </button>
@@ -425,12 +499,13 @@ export default function App() {
                           <h4 className="font-bold text-slate-900 mb-1">유사나(USANA) 솔루션 안내</h4>
                           <p className="text-sm text-slate-500 mb-4">본 리포트에서 추천된 제품은 인셀리전스 기술이 적용된 유사나의 프리미엄 영양제입니다.</p>
                           <a 
-                            href="https://issuu.com/usanakorea/docs/_18b387dc56d8e8" 
+                            href={USANA_CATALOG_URL} 
                             target="_blank" 
                             rel="noopener noreferrer"
                             className="inline-flex items-center gap-2 text-emerald-600 font-bold text-sm hover:underline"
                           >
-                            제품 상세 정보 보기 <ArrowRight size={16} />
+                            <span>제품 상세 정보 보기 (2026 카탈로그)</span>
+                            <ArrowRight size={16} />
                           </a>
                         </div>
                       </div>
@@ -467,7 +542,17 @@ export default function App() {
               <ul className="text-xs space-y-2">
                 <li><a href="#" className="hover:text-white transition-colors">영양의학가이드</a></li>
                 <li><a href="#" className="hover:text-white transition-colors">Drug Mugger Guide</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">USANA InCelligence</a></li>
+                <li>
+                  <a 
+                    href={USANA_CATALOG_URL} 
+                    target="_blank" 
+                    rel="noopener noreferrer" 
+                    className="hover:text-white transition-colors flex items-center gap-1"
+                  >
+                    <span>USANA 공식 제품 가이드 (2026)</span>
+                    <ExternalLink size={12} />
+                  </a>
+                </li>
               </ul>
             </div>
           </div>
