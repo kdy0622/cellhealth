@@ -28,6 +28,7 @@ import { cn } from '@/src/lib/utils';
 import { toPng } from 'html-to-image';
 import { jsPDF } from 'jspdf';
 import { buildAdvisorPrompt } from '@/src/lib/prompt';
+import { getGeminiApiKey } from '@/src/lib/apiKey';
 
 type AnalysisState = 'idle' | 'uploading' | 'analyzing' | 'completed' | 'error';
 
@@ -93,57 +94,13 @@ export default function App() {
     setStatus('analyzing');
     setError(null);
 
-    // 1. Primary: Attempt Server API Route (/api/analyze)
-    let shouldFallbackToClient = false;
-    let serverFailureMessage = '';
+    const apiKey = getGeminiApiKey();
 
-    try {
-      const response = await fetch('/api/analyze', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          manualInput,
-          fileData,
-        }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        if (data.result) {
-          setResult(data.result);
-          setStatus('completed');
-          return;
-        } else {
-          throw new Error(data.error || '분석 결과를 생성하지 못했습니다.');
-        }
-      }
-
-      // If server returned non-ok (e.g. 404 on static preview, 500, etc.), fall back to client
-      const errJson = await response.json().catch(() => ({}));
-      serverFailureMessage = errJson.error || `서버 응답 (${response.status})`;
-      shouldFallbackToClient = true;
-    } catch (fetchErr: any) {
-      console.warn('Backend server /api/analyze unavailable, activating client-side engine:', fetchErr);
-      serverFailureMessage = fetchErr?.message || '서버 통신 실패';
-      shouldFallbackToClient = true;
-    }
-
-    // 2. Client-side Fallback using @google/genai (Runs on static previews or when server is unavailable)
-    if (shouldFallbackToClient) {
+    // 1. Direct Client-side Gemini Execution
+    // Directly connects to Gemini API without hitting a local/static server path,
+    // which completely eliminates 404 errors on deployed static/preview hosting.
+    if (apiKey) {
       try {
-        const apiKey = 
-          process.env.GEMINI_API_KEY ||
-          process.env.API_KEY ||
-          (typeof process !== 'undefined' && process.env && (process.env.GEMINI_API_KEY || process.env.API_KEY)) ||
-          ((import.meta as any).env?.VITE_GEMINI_API_KEY) ||
-          '';
-
-        if (!apiKey) {
-          throw new Error('Gemini API 키를 불러올 수 없습니다. AI Studio 환경 변수(GEMINI_API_KEY) 설정을 확인해주세요.');
-        }
-
         const ai = new GoogleGenAI({
           apiKey,
           httpOptions: {
@@ -166,32 +123,47 @@ export default function App() {
         }
 
         const clientResponse = await ai.models.generateContent({
-          model: 'gemini-3.8-flash',
+          model: 'gemini-2.5-flash',
           contents: parts,
-          config: {
-            thinkingConfig: {
-              thinkingLevel: ThinkingLevel.LOW,
-            },
-          },
         });
 
-        if (!clientResponse.text) {
-          throw new Error('분석 결과를 생성하지 못했습니다.');
+        if (clientResponse.text) {
+          setResult(clientResponse.text);
+          setStatus('completed');
+          return;
         }
-
-        setResult(clientResponse.text);
-        setStatus('completed');
-        return;
       } catch (clientErr: any) {
-        console.error('Client AI Analysis Error:', clientErr);
-        setError(clientErr?.message || serverFailureMessage || '분석 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
-        setStatus('error');
-        return;
+        console.warn('Direct client Gemini call failed, attempting backend proxy fallback:', clientErr);
       }
     }
 
-    if (serverFailureMessage) {
-      setError(serverFailureMessage);
+    // 2. Backend API Proxy Fallback (/api/analyze)
+    // Used if client direct execution was blocked by network/ad-blocker
+    try {
+      const response = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          manualInput,
+          fileData,
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.result) {
+          setResult(data.result);
+          setStatus('completed');
+          return;
+        }
+      }
+      const errJson = await response.json().catch(() => ({}));
+      throw new Error(errJson.error || `서버 응답 오류 (${response.status})`);
+    } catch (serverErr: any) {
+      console.error('All analysis engines failed:', serverErr);
+      setError('건강 데이터 분석 중 일시적인 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
       setStatus('error');
     }
   };
